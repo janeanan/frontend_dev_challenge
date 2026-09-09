@@ -28,15 +28,22 @@
 
 ---
 
-### RES-102 — Timer.periodic leak in PickupCountdown ❌ Not fixed
+### RES-102 — Timer.periodic leak in PickupCountdown ✅ Fixed
 
 **File:** `lib/feature/order/widget/pickup_countdown.dart`
 
-**Root cause:** `Timer.periodic` is created in `initState` but the returned `Timer` reference is never stored, so `dispose()` cannot call `timer.cancel()`. The timer keeps firing after the widget is removed from the tree, calling `setState` on a dead `State` object — leading to the classic "setState called after dispose" error.
+**Root cause:** `Timer.periodic` is created in `initState` but the returned `Timer` reference is never stored, so `dispose()` cannot cancel it. The timer keeps firing after the widget is removed from the tree, calling `setState` on a dead `State` object → "setState called after dispose" error. Multiple visits to `/orders` compound the problem: each visit creates another timer, so N visits → N timers running permanently.
 
-**Fix needed:** Store the timer in a field (`late Timer _timer`), assign it in `initState`, and cancel it in `dispose()`.
+**Why not `dispose()` + stored Timer?** Considered it, but chose `Stream.periodic` + `StreamBuilder` instead:
+- `StreamBuilder` manages the subscription lifecycle automatically — no `dispose()` override needed
+- Eliminates `setState` entirely — only the `Text` widget inside the builder rebuilds
+- Avoids the edge-case race where the timer fires exactly as `dispose()` runs (would still need `if (mounted)` guard)
 
-**Time spent:** 0 min (identified, not fixed)
+**Why not GetxController?** `PickupCountdown` appears N times in the orders list simultaneously. GetX stores controllers in a global registry keyed by type + tag, so each instance needs a unique tag (`order.id`). Callers must also manually call `Get.delete<>(tag: id)` per instance on teardown — replicating what `StatefulWidget` provides for free.
+
+**Fix applied:** Replaced `Timer.periodic` + `setState` with `Stream.periodic` + `StreamBuilder`. The stream is stored in `_tickStream` (initialized once in `initState`) so it is not recreated on rebuild. The `computation` parameter is omitted intentionally — `Stream<dynamic>` is sufficient since the emitted value is unused; only the tick is needed to trigger `_buildText()`.
+
+**Time spent:** ~40 min
 
 ---
 
