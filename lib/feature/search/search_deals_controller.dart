@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:get/get.dart';
 
 import '../../model/deal_model.dart';
@@ -6,6 +8,7 @@ import '../../util/log_service.dart';
 
 class SearchDealsController extends GetxController {
   final DealRepo dealRepo;
+  String _activeQuery = '';
 
   SearchDealsController({required this.dealRepo});
 
@@ -14,6 +17,7 @@ class SearchDealsController extends GetxController {
   final hasSearched = false.obs;
 
   void onQueryChanged(String query) {
+    _activeQuery = query;
     _search(query);
   }
 
@@ -25,9 +29,15 @@ class SearchDealsController extends GetxController {
     }
     isLoading.value = true;
     hasSearched.value = true;
+    final stopwatch = Stopwatch()..start();
+    log('search SENT: "$query"');
     try {
       final found = await dealRepo.search(query);
+      stopwatch.stop();
+      log('search RECEIVED: "$query" | ${stopwatch.elapsedMilliseconds}ms | ${found.length}');
+      if (query != _activeQuery) return;
       results.assignAll(found);
+      log('results NOW: ${results.length}');
     } catch (e) {
       LogService.error('search failed', e);
     }
