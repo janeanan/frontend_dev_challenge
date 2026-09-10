@@ -4,7 +4,6 @@ import '../../model/deal_model.dart';
 import '../../repository/deal_repo.dart';
 import '../../service/analytics_service.dart';
 import '../../service/cart_service.dart';
-import '../../util/log_service.dart';
 
 class DealDetailsController extends GetxController {
   final DealRepo dealRepo;
@@ -33,17 +32,21 @@ class DealDetailsController extends GetxController {
     });
     // Whenever the cart changes, re-check this deal's remaining stock so the
     // details screen never shows stale availability.
-    ever(cartService.itemCount, (_) => _recheckAvailability());
+
+    // ever(cartService.itemCount, (_) => _recheckAvailability());
   }
 
-  Future<void> _recheckAvailability() async {
-    LogService.log('re-checking availability for deal ${deal.id}');
-    final fresh = await dealRepo.fetchById(deal.id);
-    _quantityLeft.value = fresh.quantityLeft;
-  }
+  // Future<void> _recheckAvailability() async {
+  //   LogService.log('re-checking availability for deal ${deal.id}');
+  //   final fresh = await dealRepo.fetchById(deal.id);
+  //   _quantityLeft.value = fresh.quantityLeft;
+  // }
 
   void addToCart() {
     cartService.add(deal);
+    if (_quantityLeft.value != null) {
+      _quantityLeft.value = (_quantityLeft.value! - 1).clamp(0, deal.quantityLeft);
+    }
     Get.snackbar(
       'Added to bag',
       '${deal.name} — pick up ${deal.pickupWindow.label}',

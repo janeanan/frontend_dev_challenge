@@ -47,15 +47,26 @@
 
 ---
 
-### RES-103 — `ever()` listener accumulates across screen visits ❌ Not fixed
+### RES-103 — `ever()` listener accumulates across screen visits ✅ Fixed
 
-**File:** `lib/feature/deal/deal_details_controller.dart:36`
+**File:** `lib/feature/deal/deal_details_controller.dart`
 
-**Root cause:** `ever(cartService.itemCount, ...)` is called inside `onInit()`. Because `DealDetailsController` uses `fenix: true` in its binding, GetX recreates the controller on every navigation to `/deal`, calling `onInit()` again and registering a *new* listener on the global `cartService.itemCount` observable each time. Old listeners from previous visits are not removed, so N visits → N listeners → N `_recheckAvailability()` calls per cart change.
+**Root cause:** `ever(cartService.itemCount, ...)` registers a `Worker` that subscribes to a global observable (`CartService` is `permanent: true`). The Worker was not stored, so GetX could not dispose it when the controller was deleted. Confirmed via console log: on the second visit, pressing "Add to bag" once produced 2 `GET /deals/1` requests — one from the current controller, one from the orphaned Worker of the previous visit. Each additional visit adds another Worker, making the app chattier the longer the session.
 
-**Fix needed:** Capture the `Worker` returned by `ever()` into a field, and call `worker.dispose()` in `onClose()`. Alternatively, move the `ever()` to a one-time registration outside `fenix` lifecycles.
+**Approaches considered:**
 
-**Time spent:** 0 min (identified, not fixed)
+| Approach | Worker leak | Syncs from server | Notes |
+|---|---|---|---|
+| `ever()` + `onClose()` dispose | ✅ | ✅ | Canonical fix — still makes API call per cart change |
+| `isClosed` guard | ✗ Worker stays alive | ✅ | Fires callback then discards result — wastes API calls |
+| `addToCart()` + fetch | ✅ | ✅ | 1 call per button press, but FakeApiService returns stale value |
+| `addToCart()` optimistic | ✅ | ✗ | Decrement in memory — accurate for this app |
+
+**Why not `isClosed`:** The Worker is still registered on `cartService.itemCount` after the controller is deleted. It keeps firing and calling `fetchById()` silently — wasting API calls without any visible benefit. It fixes the crash but not the root cause.
+
+**Fix applied:** Removed `ever()` entirely. `addToCart()` decrements `_quantityLeft` optimistically by 1 per press, clamped to `[0, deal.quantityLeft]`. No Worker is created, so there is nothing to leak. This matches the actual UX: the user added one item, so one fewer is available to add.
+
+**Time spent:** ~60 min
 
 ---
 
