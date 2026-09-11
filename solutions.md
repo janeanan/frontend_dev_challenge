@@ -128,15 +128,23 @@
 
 ---
 
-### RES-107 — `Get.arguments` is null on deep-link navigation ❌ Not fixed
+### RES-107 — `Get.arguments` is null on deep-link navigation ✅ Fixed
 
-**File:** `lib/feature/deal/deal_details_controller.dart:28`
+**Files:** `lib/feature/deal/deal_details_controller.dart`, `lib/feature/deal/deal_details_screen.dart`
 
-**Root cause:** `deal = Get.arguments as DealModel` assumes the screen is always opened by pushing a route with a `DealModel` argument. When the screen is opened via a deep link (`rescu://open/deal?id=42&source=push`), the middleware calls `Get.toNamed('/deal?id=42&source=push')` with no `arguments`, so `Get.arguments` is `null` and the cast throws.
+**Root cause:** Two layered issues:
 
-**Fix needed:** In `onInit()`, check `Get.arguments`: if it is a `DealModel`, use it directly; otherwise fall back to `Get.parameters['id']` and call `dealRepo.fetchById()` to load the deal, showing a loading state in the UI meanwhile.
+1. **`Get.arguments` is null when the screen is opened via a deep link.** In-app navigation passes a `DealModel` directly via `arguments`, but a deep link (`rescu://open/deal?id=42&source=push`) has no `arguments` — GetX only parses the URL and places `{'id': '42'}` in `Get.parameters`. The original cast `Get.arguments as DealModel` therefore casts `null`, which throws at runtime.
 
-**Time spent:** 0 min (identified, not fixed)
+2. **Flutter draws the screen the moment the route opens — it does not wait for `onInit()` to finish.** Even after fixing the null by fetching from `Get.parameters['id']`, `fetchById()` is async. By the time `build()` runs for the first time, `deal` has not been set yet → `LateInitializationError`.
+
+**Fix applied:**
+
+When the screen is opened via a deep link, the original `Get.arguments as DealModel` tries to cast `null` into a `DealModel`, which throws an exception at runtime. The fix changes the cast to `Get.arguments as DealModel?` (nullable) so the cast never throws — if `null`, it falls back to `Get.parameters['id']` and fetches the deal from the repository instead.
+
+However, `fetchById()` is async, which means `deal` is not yet set when Flutter draws the screen for the first time. To prevent a crash from this async timing, `isLoading = true.obs` is added to hold the screen at a spinner until the fetch completes. If the fetch fails, `hasError = true.obs` signals the screen to show an error message with a Go back button instead of trying to render an uninitialized `deal`.
+
+**Time spent:** ~30 min
 
 ---
 
@@ -189,9 +197,9 @@
 | RES-104 | ✅ Fixed | Generation counter discards stale loadMore/refresh results |
 | RES-105 | ❌ Not fixed | `Obx` scope too wide; no image cache bounds |
 | RES-106 | ✅ Fixed | Convert UTC → UTC+7 via `_bangkokOffset` before formatting and `.day` compare |
-| RES-107 | ❌ Not fixed | Must handle null `Get.arguments` for deep-link entry |
+| RES-107 | ✅ Fixed | Nullable cast + isLoading/hasError guards for deep-link entry |
 | F-1 | ❌ Not implemented | Countdown widget + cart eviction on expiry |
 | F-2 | ❌ Not implemented | VisibilityDetector + session dedup + batch log |
 | F-3 | ❌ Not implemented | Optimistic reserve + 5-min expiry timer |
 
-**Total time logged:** ~185 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min)
+**Total time logged:** ~215 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min, RES-107: ~30 min)

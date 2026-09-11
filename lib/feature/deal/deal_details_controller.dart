@@ -16,24 +16,54 @@ class DealDetailsController extends GetxController {
     required this.analytics,
   });
 
-  late final DealModel deal;
+  late DealModel deal;
 
   final _quantityLeft = RxnInt();
   int? get quantityLeft => _quantityLeft.value;
 
+  final isLoading = true.obs;
+  final hasError = false.obs;
+
   @override
   void onInit() {
     super.onInit();
-    deal = Get.arguments as DealModel;
-    _quantityLeft.value = deal.quantityLeft;
-    analytics.logEvent('deal_details_view', {
-      'deal_id': deal.id,
-      'source': Get.parameters['source'] ?? 'unknown',
-    });
+    // TEMP: simulate fetch error — remove after testing
+    // hasError.value = true;
+    // isLoading.value = false;
+    // return;
+
+    final args = Get.arguments as DealModel?;
+    if (args != null) {
+      deal = args;
+      _quantityLeft.value = deal.quantityLeft;
+      isLoading.value = false;
+      analytics.logEvent('deal_details_view', {
+        'deal_id': deal.id,
+        'source': Get.parameters['source'] ?? 'unknown',
+      });
+    } else {
+      final id = int.tryParse(Get.parameters['id'] ?? '');
+      if (id != null) _loadById(id);
+    }
     // Whenever the cart changes, re-check this deal's remaining stock so the
     // details screen never shows stale availability.
 
     // ever(cartService.itemCount, (_) => _recheckAvailability());
+  }
+
+  Future<void> _loadById(int id) async {
+    try {
+      deal = await dealRepo.fetchById(id);
+      _quantityLeft.value = deal.quantityLeft;
+      analytics.logEvent('deal_details_view', {
+        'deal_id': deal.id,
+        'source': Get.parameters['source'] ?? 'unknown',
+      });
+    } catch (e) {
+      hasError.value = true;
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   // Future<void> _recheckAvailability() async {
