@@ -7,6 +7,8 @@ class PickupWindowModel {
 
   const PickupWindowModel({required this.start, required this.end});
 
+  static const _bangkokOffset = Duration(hours: 7);
+
   factory PickupWindowModel.fromJson(Map<String, dynamic> json) {
     return PickupWindowModel(
       start: DateTime.parse(json['start'] as String? ?? ''),
@@ -14,12 +16,20 @@ class PickupWindowModel {
     );
   }
 
+  DateTime get _startBkk => start.toUtc().add(_bangkokOffset);
+  DateTime get _endBkk => end.toUtc().add(_bangkokOffset);
+
   /// Human readable label, e.g. "17:30 – 21:00".
   String get label =>
-      '${DateFormat('HH:mm').format(start)} – ${DateFormat('HH:mm').format(end)}';
+      '${DateFormat('HH:mm').format(_startBkk)} – ${DateFormat('HH:mm').format(_endBkk)}';
 
-  /// Whether pickup starts today.
-  bool get isToday => start.day == DateTime.now().day;
+  /// Whether pickup starts today (in Bangkok time).
+  bool get isToday {
+    final nowBkk = DateTime.now().toUtc().add(_bangkokOffset);
+    return _startBkk.year == nowBkk.year &&
+        _startBkk.month == nowBkk.month &&
+        _startBkk.day == nowBkk.day;
+  }
 
   /// Whether the store is currently accepting pickups.
   bool get isOpenNow {

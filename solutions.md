@@ -108,15 +108,23 @@
 
 ---
 
-### RES-106 — Pickup time displayed in local timezone instead of UTC+7 ❌ Not fixed
+### RES-106 — Pickup time displayed in UTC instead of UTC+7 ✅ Fixed
 
 **File:** `lib/model/pickup_window_model.dart`
 
-**Root cause:** `DateFormat('HH:mm').format(start)` calls `format()` on a UTC `DateTime` without converting it to Bangkok time (UTC+7) first. Dart's `DateTime.parse()` on an ISO-8601 UTC string returns a UTC instance; `DateFormat.format()` on a UTC instance uses the *device's* local timezone, not UTC+7. For a user in a different timezone, `label`, `isToday`, and `isOpenNow` are all wrong.
+**Root cause:** Two separate bugs in the same model:
 
-**Fix needed:** Convert before formatting: `start.toUtc().add(const Duration(hours: 7))`. Alternatively add `package:timezone` and use `TZDateTime`.
+1. **`label`** — `DateFormat('HH:mm').format(start)` is called on a UTC `DateTime`. `DateFormat.format()` formats the DateTime as-is in its own timezone — so a UTC `DateTime` renders as UTC time, 7 hours behind Bangkok. Users see "10:30 – 14:00" instead of "17:30 – 21:00".
 
-**Time spent:** 0 min (identified, not fixed)
+2. **`isToday`** — `start.day == DateTime.now().day` compares the UTC calendar day of `start` against the local-device calendar day of `now`. If the device is in a different timezone, or if the window spans UTC midnight, the `.day` comparison gives the wrong answer.
+
+**Why `isOpenNow` / `untilStart` are fine:** Both use `DateTime.now()` in a comparison or `.difference()` call. Dart normalises UTC vs local DateTimes to epoch milliseconds for these operations — they are timezone-safe without any conversion.
+
+**Fix applied:** Added a `static const _bangkokOffset = Duration(hours: 7)` and two private getters `_startBkk` / `_endBkk` that apply `.toUtc().add(_bangkokOffset)`. Updated `label` to format the Bangkok-local DateTimes, and updated `isToday` to compare year/month/day against `DateTime.now().toUtc().add(_bangkokOffset)` for a three-field equality (year + month + day) to avoid cross-month edge cases.
+
+**Why not `package:timezone`?** The project uses no timezone package and Bangkok is always UTC+7 (no daylight saving), so a plain `Duration(hours: 7)` offset is accurate and adds no dependency.
+
+**Time spent:** ~15 min
 
 ---
 
@@ -180,10 +188,10 @@
 | RES-103 | ✅ Fixed | Removed `ever()` entirely; `addToCart()` decrements `_quantityLeft` optimistically |
 | RES-104 | ✅ Fixed | Generation counter discards stale loadMore/refresh results |
 | RES-105 | ❌ Not fixed | `Obx` scope too wide; no image cache bounds |
-| RES-106 | ❌ Not fixed | Must convert UTC → UTC+7 before formatting |
+| RES-106 | ✅ Fixed | Convert UTC → UTC+7 via `_bangkokOffset` before formatting and `.day` compare |
 | RES-107 | ❌ Not fixed | Must handle null `Get.arguments` for deep-link entry |
 | F-1 | ❌ Not implemented | Countdown widget + cart eviction on expiry |
 | F-2 | ❌ Not implemented | VisibilityDetector + session dedup + batch log |
 | F-3 | ❌ Not implemented | Optimistic reserve + 5-min expiry timer |
 
-**Total time logged:** ~170 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min)
+**Total time logged:** ~185 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min)
