@@ -150,15 +150,23 @@ However, `fetchById()` is async, which means `deal` is not yet set when Flutter 
 
 ## Part B: Features
 
-### F-1 — Live flash-sale countdown ❌ Not implemented
+### F-1 — Live flash-sale countdown ✅ Fixed
 
-**Scope:** `DealCard` (home feed + flash rail), `FlashDealsSection`, `DealDetailsScreen`.
+**Files:** `lib/feature/shared_widget/flash_sale_countdown.dart` (new), `lib/feature/shared_widget/deal_card.dart`, `lib/feature/home/widget/flash_deals_section.dart`, `lib/feature/deal/deal_details_screen.dart`
 
-**Plan (not executed):**
-- Extend `DealModel` with a computed getter `flashSaleSecondsRemaining` based on `flashSaleEndsAt`.
-- Add a `CountdownTimer` widget similar to `PickupCountdown` that shows `mm:ss` and rebuilds every second.
-- When `flashSaleEndsAt` is past: disable the "Add to bag" button and call `CartService.remove()` for any cart item referencing this deal.
-- The `Timer` must be cancelled in `dispose()` (lesson from RES-102).
+**Root cause:** Flash deals showed a static `"Ends soon"` badge with no live time. `DealModel.flashSaleEndsAt` existed but was unused in the UI.
+
+**Fix applied:**
+
+Created `FlashSaleCountdown` widget in `lib/feature/shared_widget/` (shared across all three locations) and replaced the static badge everywhere:
+
+- **`DealCard`** (home feed) — shows `FlashSaleCountdown` inside the red FLASH SALE badge
+- **`FlashDealsSection`** (flash rail) — replaces static `"Ends soon"` label with `FlashSaleCountdown`
+- **`DealDetailsScreen`** — adds a red banner row "Flash sale ends in `hh:mm:ss`" below the price, only shown when `deal.isFlashSale`
+
+`FlashSaleCountdown` uses `Stream.periodic(Duration(seconds: 1))` + `StreamBuilder` — same lifecycle-safe pattern as RES-102; no `dispose()` needed. `_buildText()` formats as `mm:ss` under an hour and `hh:mm:ss` at or above an hour, switching to `'Ended'` once `flashSaleEndsAt` is past. The `color` parameter (default `Colors.white`) keeps text readable on both red and white backgrounds.
+
+**Time spent:** ~30 min
 
 ---
 
@@ -198,7 +206,7 @@ However, `fetchById()` is async, which means `deal` is not yet set when Flutter 
 | RES-105 | ❌ Not fixed | `Obx` scope too wide; no image cache bounds |
 | RES-106 | ✅ Fixed | Convert UTC → UTC+7 via `_bangkokOffset` before formatting and `.day` compare |
 | RES-107 | ✅ Fixed | Nullable cast + isLoading/hasError guards for deep-link entry |
-| F-1 | ❌ Not implemented | Countdown widget + cart eviction on expiry |
+| F-1 | ✅ Fixed | Live `mm:ss` / `hh:mm:ss` countdown in DealCard, flash rail, and DealDetailsScreen |
 | F-2 | ❌ Not implemented | VisibilityDetector + session dedup + batch log |
 | F-3 | ❌ Not implemented | Optimistic reserve + 5-min expiry timer |
 
