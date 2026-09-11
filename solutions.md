@@ -8,6 +8,12 @@
 
 **graphify** — เครื่องมือที่สร้าง knowledge graph จาก codebase (529 nodes, 652 edges) แล้วให้ query ด้วยภาษาธรรมชาติเช่น `graphify query "where is ever() called"` แทนที่จะต้องเปิดไฟล์ทีละไฟล์ ช่วยให้หา root cause ของ bug ได้เร็วขึ้น โดยเฉพาะ bug ที่กระจายข้าม file เช่น RES-103 (listener lifecycle) และ RES-107 (deep link entry point)
 
+### AI Usage Log — แนวทางที่ปรับเปลี่ยนระหว่างทาง
+
+**RES-102:** AI เสนอแนวทางแรกคือ `dispose()` + stored `Timer` ซึ่งถูกต้องในเชิง Flutter แต่ dev มองว่าโปรเจคนี้ใช้ GetX Controller เป็นหลัก การมาเขียน `dispose()` ใน `StatefulWidget` แยกออกไปเพิ่มภาระในการดูแล dev จึงเลือกใช้ `Stream.periodic` + `StreamBuilder` แทน ซึ่ง Flutter จัดการ lifecycle ให้อัตโนมัติ ไม่ต้องเขียน `dispose()` เอง
+
+**RES-103:** AI เสนอ `isClosed` guard เป็นแนวทางหนึ่ง แต่ dev ชี้ให้เห็นว่า Worker ยังค้างอยู่ใน memory และยังต้องมี `dispose()` ใน `onClose()` อยู่ดี dev มองว่าเมื่อ controller เข้า `onInit()` ครั้งแรกจะได้ `quantityLeft` จาก model มาแล้ว การลดค่าใน `addToCart()` แบบ optimistic จึงตอบโจทย์กว่า เพราะไม่มี Worker เกิดขึ้นเลย ไม่มีอะไรต้องจัดการ
+
 ---
 
 ## Part A: Bug Fixes
@@ -70,15 +76,21 @@
 
 ---
 
-### RES-104 — Duplicate deals when refreshing during loadMore ❌ Not fixed
+### RES-104 — Duplicate deals when refreshing during loadMore ✅ Fixed
 
-**File:** `lib/feature/home/home_controller.dart:58-63`
+**File:** `lib/feature/home/home_controller.dart`
 
-**Root cause:** `refreshDeals()` resets `_page = 1` and calls `deals.assignAll()`, but it does not guard against a concurrent `loadMore`. If both run simultaneously: `loadMore` increments `_page` and is awaiting; `refreshDeals` resets `_page = 1` and replaces `deals` with page-1 items; then `loadMore` resolves and calls `deals.addAll()` with page-2 results on top — producing a list that mixes fresh page-1 with page-2, or worse, page-1 duplicates if loadMore was fetching page 1 as well.
+**Root cause:** `refreshDeals()` resets `_page = 1` and calls `deals.assignAll()`, but does not guard against a concurrent `loadMore`. If both run simultaneously: `loadMore` increments `_page` and is awaiting a network response; `refreshDeals` resets `_page = 1` and replaces `deals` with fresh page-1 items; then `loadMore` resolves and calls `deals.addAll()` with stale page-2 results on top — mixing fresh page-1 data with stale page-2 data, or creating duplicate entries if `loadMore` was also fetching page 1.
 
-**Fix needed:** In `refreshDeals()`, set `_isFetchingMore = false` and reset the flag before the `assignAll` call, or cancel any in-flight loadMore. A simple approach: `if (_isFetchingMore) { _isFetchingMore = false; }` at the top of `refreshDeals`, then proceed.
 
-**Time spent:** 0 min (identified, not fixed)
+**Fix applied:** Added `int _generation = 0` field.
+
+- `refreshDeals()` increments the counter (`final gen = ++_generation`) before the `await`. After the `await`, if `_generation != gen` the result is discarded — a newer operation has superseded this one.
+- `loadMore()` reads the counter without incrementing (`final gen = _generation`). After the `await`, if `_generation != gen` the result is discarded and `_page` is rolled back — a `refreshDeals` call that ran during the fetch has made this data stale.
+
+**Why generation counter over `_isRefreshing` flag:** `_isRefreshing` saves one network call (stops `loadMore` before it starts) but does not handle refresh-over-refresh races. Generation counter handles both directions — any operation that arrives late is discarded regardless of which triggered the other. The log output is also more debuggable.
+
+**Time spent:** ~45 min
 
 ---
 
@@ -164,9 +176,9 @@
 | ID | Status | Notes |
 |---|---|---|
 | RES-101 | ✅ Fixed | Last-write-wins guard via `_activeQuery` |
-| RES-102 | ❌ Not fixed | Timer reference needs to be stored and cancelled |
-| RES-103 | ❌ Not fixed | `ever()` worker needs to be disposed in `onClose()` |
-| RES-104 | ❌ Not fixed | `refreshDeals` must reset `_isFetchingMore` flag |
+| RES-102 | ✅ Fixed | Replaced `Timer.periodic` + `setState` with `Stream.periodic` + `StreamBuilder` |
+| RES-103 | ✅ Fixed | Removed `ever()` entirely; `addToCart()` decrements `_quantityLeft` optimistically |
+| RES-104 | ✅ Fixed | Generation counter discards stale loadMore/refresh results |
 | RES-105 | ❌ Not fixed | `Obx` scope too wide; no image cache bounds |
 | RES-106 | ❌ Not fixed | Must convert UTC → UTC+7 before formatting |
 | RES-107 | ❌ Not fixed | Must handle null `Get.arguments` for deep-link entry |
@@ -174,4 +186,4 @@
 | F-2 | ❌ Not implemented | VisibilityDetector + session dedup + batch log |
 | F-3 | ❌ Not implemented | Optimistic reserve + 5-min expiry timer |
 
-**Total time logged:** ~25 min (RES-101 only)
+**Total time logged:** ~170 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min)

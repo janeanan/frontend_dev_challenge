@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
@@ -23,6 +25,7 @@ class HomeController extends GetxController {
   int _page = 1;
   int _totalPages = 1;
   bool _isFetchingMore = false;
+  int _generation = 0;
 
   bool get hasMore => _page < _totalPages;
 
@@ -56,11 +59,18 @@ class HomeController extends GetxController {
   }
 
   Future<void> refreshDeals() async {
+    final gen = ++_generation;
+    log('REFRESH START — gen=$gen _page=$_page _isFetchingMore=$_isFetchingMore deals=${deals.length}');
     _page = 1;
     final res = await dealRepo.fetchDeals(page: 1);
+    if (_generation != gen) {
+      log('REFRESH DISCARDED — gen=$gen superseded by gen=$_generation');
+      return;
+    }
     _totalPages = res.totalPages;
     deals.assignAll(res.items);
     refreshController.refreshCompleted();
+    log('REFRESH DONE — gen=$gen deals=${deals.length}');
   }
 
   Future<void> loadMore() async {
@@ -69,12 +79,21 @@ class HomeController extends GetxController {
       refreshController.loadNoData();
       return;
     }
+    final gen = _generation;
     _isFetchingMore = true;
     _page++;
+    log('LOADMORE START — gen=$gen fetching page $_page deals=${deals.length}');
     try {
       final res = await dealRepo.fetchDeals(page: _page);
+      if (_generation != gen) {
+        log('LOADMORE DISCARDED — gen=$gen superseded by gen=$_generation');
+        _page--;
+        _isFetchingMore = false;
+        return;
+      }
       _totalPages = res.totalPages;
       deals.addAll(res.items);
+      log('LOADMORE DONE — gen=$gen _page=$_page deals=${deals.length}');
     } catch (e) {
       LogService.error('loadMore failed', e);
       _page--;
