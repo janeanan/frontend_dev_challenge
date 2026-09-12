@@ -170,16 +170,37 @@ Created `FlashSaleCountdown` widget in `lib/feature/shared_widget/` (shared acro
 
 ---
 
-### F-2 — Deal impression tracking ❌ Not implemented
+### F-2 — Deal impression tracking ✅ Implemented
 
-**Scope:** `DealCard` wherever it appears (home feed, flash rail, search results).
+**Files:** `lib/feature/shared_widget/impression_tracker.dart` (new), `lib/service/analytics_service.dart`, `lib/feature/home/home_screen.dart`, `lib/feature/home/widget/flash_deals_section.dart`, `lib/feature/search/search_screen.dart`, `lib/main.dart`
 
-**Plan (not executed):**
-- Use a `VisibilityDetector` (or `IntersectionObserver`-style approach) to detect when ≥ 50% of a `DealCard` is on screen for ≥ 1 second.
-- Maintain a `Set<int>` of deal IDs already logged this session to fire each event only once.
-- Log `deal_impression` via `AnalyticsService.logEvent()`, which already batches at 10 events or 15 s.
+**What the spec required:**
+- Fire `deal_impression` when a `DealCard` is ≥ 50% visible for ≥ 1 second
+- Log `deal_id`, `source` (home_feed / flash_rail / search), and `position` (index in list)
+- Each deal ID must be logged at most once per session
+- Batch events and send via `FakeApiService.sendAnalyticsBatch()` at 10 events or every 15 seconds
+- Must not hurt scroll performance
 
-**Key decision:** Session-scoped dedup lives in memory (no persistence needed per spec). The 1-second timer must be cancelled if the card scrolls out before the threshold, otherwise partial-visibility triggers false impressions.
+**Fix applied:**
+
+**`ImpressionTracker` widget** (`shared_widget/impression_tracker.dart`) — a `StatefulWidget` that wraps `VisibilityDetector` from the `visibility_detector` package. When `visibleFraction >= 0.5`, it starts a 1-second `Timer`. If the card scrolls out before the timer fires, the timer is cancelled immediately. Zero `setState` calls — the widget only manages the timer in its state; the child never rebuilds.
+
+**Session dedup** — `Set<int> _seenDealIds` in `AnalyticsService`. `logImpression()` returns early if the deal ID is already in the set, so each deal fires at most one event for the life of the app session. No persistence required.
+
+**Batching** — Added `_pending` buffer and `_batchTimer` to `AnalyticsService`. The timer is started lazily (`_batchTimer ??= Timer(...)`) on the first queued event, so the 15-second window measures from the first unsent event, not reset per event. At 10 events the batch flushes immediately. `onClose()` flushes any remaining events so nothing is lost on app exit.
+
+**Scroll performance** — `VisibilityDetectorController.instance.updateInterval = const Duration(milliseconds: 500)` set in `main()` before `initDependencies()`. This throttles visibility callbacks to at most once per 500ms instead of every frame, removing per-frame work during scroll.
+
+**Integration** — Wrapped each deal list with `ImpressionTracker`:
+- `HomeScreen` — `.indexed.map()` over `visibleDeals` with `source: 'home_feed'`
+- `FlashDealsSection` — `itemBuilder` with `source: 'flash_rail'`
+- `SearchScreen` — `itemBuilder` with `source: 'search'`
+
+Each tracker uses `Key('imp-<source>-<deal.id>')` so `VisibilityDetector` can reliably track identity across rebuilds.
+
+**Verified via logs:** Observed `POST /analytics/batch events=10` when 10 unique deals were seen, and `POST /analytics/batch events=3` after 15 seconds for a smaller batch. Revisiting already-seen cards produced no additional log entries or API calls.
+
+**Time spent:** ~60 min
 
 ---
 
@@ -207,7 +228,7 @@ Created `FlashSaleCountdown` widget in `lib/feature/shared_widget/` (shared acro
 | RES-106 | ✅ Fixed | Convert UTC → UTC+7 via `_bangkokOffset` before formatting and `.day` compare |
 | RES-107 | ✅ Fixed | Nullable cast + isLoading/hasError guards for deep-link entry |
 | F-1 | ✅ Fixed | Live `mm:ss` / `hh:mm:ss` countdown in DealCard, flash rail, and DealDetailsScreen |
-| F-2 | ❌ Not implemented | VisibilityDetector + session dedup + batch log |
+| F-2 | ✅ Implemented | `ImpressionTracker` widget + session dedup + batch 10/15 s |
 | F-3 | ❌ Not implemented | Optimistic reserve + 5-min expiry timer |
 
-**Total time logged:** ~215 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min, RES-107: ~30 min)
+**Total time logged:** ~275 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min, RES-107: ~30 min, F-1: ~30 min, F-2: ~60 min)

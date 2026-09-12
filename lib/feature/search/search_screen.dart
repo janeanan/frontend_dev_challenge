@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../service/analytics_service.dart';
 import '../shared_widget/deal_card.dart';
+import '../shared_widget/impression_tracker.dart';
 import 'search_deals_controller.dart';
 
 class SearchScreen extends GetView<SearchDealsController> {
@@ -38,10 +40,15 @@ class SearchScreen extends GetView<SearchDealsController> {
         }
         return ListView.builder(
           itemCount: controller.results.length,
-          itemBuilder: (context, index) => DealCard(
-            deal: controller.results[index],
-            source: 'search',
-          ),
+          itemBuilder: (context, index) {
+            final deal = controller.results[index];
+            return ImpressionTracker(
+              key: Key('imp-search-${deal.id}'),
+              onImpression: () => Get.find<AnalyticsService>()
+                  .logImpression(deal.id, 'search', index),
+              child: DealCard(deal: deal, source: 'search'),
+            );
+          },
         );
       }),
     );

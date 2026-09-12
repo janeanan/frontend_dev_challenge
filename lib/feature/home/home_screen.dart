@@ -4,7 +4,9 @@ import 'package:pull_to_refresh/pull_to_refresh.dart';
 
 import '../../app_config.dart';
 import '../../routes/routes.dart';
+import '../../service/analytics_service.dart';
 import '../shared_widget/deal_card.dart';
+import '../shared_widget/impression_tracker.dart';
 import '../shared_widget/shimmer_deal_card.dart';
 import 'home_controller.dart';
 import 'widget/flash_deals_section.dart';
@@ -94,8 +96,15 @@ class HomeScreen extends GetView<HomeController> {
                         ],
                       ),
                     ),
-                    ...controller.visibleDeals
-                        .map((deal) => DealCard(deal: deal)),
+                    ...controller.visibleDeals.indexed.map((record) {
+                      final (index, deal) = record;
+                      return ImpressionTracker(
+                        key: Key('imp-home-${deal.id}'),
+                        onImpression: () => Get.find<AnalyticsService>()
+                            .logImpression(deal.id, 'home_feed', index),
+                        child: DealCard(deal: deal, source: 'home_feed'),
+                      );
+                    }),
                     const SizedBox(height: 24),
                   ],
                 ),

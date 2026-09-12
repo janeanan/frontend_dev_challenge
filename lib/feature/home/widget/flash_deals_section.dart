@@ -3,7 +3,9 @@ import 'package:get/get.dart';
 import '../../../app_config.dart';
 import '../../../model/deal_model.dart';
 import '../../../routes/routes.dart';
+import '../../../service/analytics_service.dart';
 import '../../shared_widget/flash_sale_countdown.dart';
+import '../../shared_widget/impression_tracker.dart';
 import '../../shared_widget/the_network_image.dart';
 
 /// Horizontal flash-sale rail.
@@ -39,7 +41,11 @@ class FlashDealsSection extends StatelessWidget {
             itemCount: deals.length,
             itemBuilder: (context, index) {
               final deal = deals[index];
-              return SizedBox(
+              return ImpressionTracker(
+                key: Key('imp-flash-${deal.id}'),
+                onImpression: () => Get.find<AnalyticsService>()
+                    .logImpression(deal.id, 'flash_rail', index),
+                child: SizedBox(
                 width: 200,
                 child: Card(
                   color: Colors.white,
@@ -110,7 +116,7 @@ class FlashDealsSection extends StatelessWidget {
                     ),
                   ),
                 ),
-              );
+              ));
             },
           ),
         ),

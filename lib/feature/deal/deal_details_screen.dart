@@ -85,26 +85,27 @@ class DealDetailsScreen extends GetView<DealDetailsController> {
                             )),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade600,
-                        borderRadius: BorderRadius.circular(8),
+                    if (deal.isFlashSale) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade600,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.bolt, color: Colors.white, size: 16),
+                            const SizedBox(width: 6),
+                            const Text('Flash sale ends in',
+                                style: TextStyle(color: Colors.white, fontSize: 13)),
+                            const Spacer(),
+                            FlashSaleCountdown(endsAt: deal.flashSaleEndsAt!),
+                          ],
+                        ),
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.bolt, color: Colors.white, size: 16),
-                          const SizedBox(width: 6),
-                          const Text('Flash sale ends in',
-                              style:
-                                  TextStyle(color: Colors.white, fontSize: 13)),
-                          const Spacer(),
-                          FlashSaleCountdown(endsAt: deal.flashSaleEndsAt!),
-                        ],
-                      ),
-                    ),
+                    ],
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(12),
