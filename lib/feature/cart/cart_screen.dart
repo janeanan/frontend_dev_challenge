@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../app_config.dart';
+import '../shared_widget/flash_sale_countdown.dart';
 import '../shared_widget/the_network_image.dart';
 import 'cart_controller.dart';
 
@@ -56,6 +57,16 @@ class CartScreen extends GetView<CartController> {
                                   fontSize: 13,
                                   color: AppConfig.primaryGreen,
                                   fontWeight: FontWeight.w600)),
+                          if (item.reservation != null)
+                            FlashSaleCountdown(
+                              endsAt: item.reservation!.expiresAt,
+                              color: Colors.grey.shade600,
+                            )
+                          else
+                            Text('Reserving...',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500)),
                         ],
                       ),
                     ),

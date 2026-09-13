@@ -204,15 +204,43 @@ Each tracker uses `Key('imp-<source>-<deal.id>')` so `VisibilityDetector` can re
 
 ---
 
-### F-3 — Optimistic add + reservation expiry ❌ Not implemented
+### F-3 — Stock reservations with optimistic UI ✅ Implemented (one known limitation)
 
-**Scope:** `CartService`, `CartScreen`, `DealDetailsScreen`.
+**Files:** `lib/main.dart`, `lib/service/cart_service.dart`, `lib/feature/cart/cart_controller.dart`, `lib/feature/cart/cart_screen.dart`, `lib/model/cart_item_model.dart` (doc comment only). No changes to `lib/service/fake_api_service.dart`, `lib/repository/order_repo.dart`, or `lib/model/reservation_model.dart` — the reservation API (`reserveDeal`/`releaseReservation`/`checkout`) and models already existed, unused.
 
-**Plan (not executed):**
-- On "Add to bag", call `FakeApiService.reserveDeal()` immediately and store the returned `reservationId` alongside the cart item.
-- Show the item optimistically (already in cart) while the reservation completes; roll back + show a snackbar if it fails.
-- Each `CartItemModel` gets an `expiresAt = DateTime.now().add(Duration(minutes: 5))`. A periodic timer in `CartService` removes expired items and notifies the user.
-- `CartService.checkout()` already forwards `reservationId` per line — this just ensures the ID is populated.
+**What the spec required:**
+- Adding to the bag reserves stock; the UI responds optimistically, then reconciles (rollback with a non-technical message if the reservation fails)
+- Each bag line shows how long its reservation has left
+- Removing a line / reducing quantity releases or adjusts the hold
+- Checkout passes reservation ids; handle the `410 reservation expired` rejection gracefully
+- Deliberately underspecified: decide what happens when a reservation expires while the user is still in the app (or mid-checkout)
+
+**Fix applied:**
+
+**DI wiring:** `CartService` now takes `OrderRepo` as a constructor dependency. `main.dart` registers `DealRepo`/`StoreRepo`/`OrderRepo` (`lazyPut`) *before* `Get.put(CartService(orderRepo: Get.find()))`, since `Get.find()` resolves eagerly at that call site — reversing the order throws `"OrderRepo" not found` at startup.
+
+**Optimistic add + rollback (`CartService.add`):** The cart line is added to `items` synchronously, before any `await`, so the UI updates instantly. `orderRepo.reserve(dealId)` is then awaited; on success the returned `ReservationModel` is attached to the line. On `ApiException(409)` the line is rolled back (quantity decremented, or removed if it was the only unit) and a snackbar shows a plain-language message ("Someone just grabbed this item. Please try again.") — no status code or exception text reaches the user. A per-deal generation counter (same technique as RES-104's `_generation` field) discards a `reserve()` response that resolves after a newer request for the same deal, so rapid taps on "+" can't let a stale response clobber a newer one.
+
+**Time-left per line:** Reused `FlashSaleCountdown` (built for F-1) unmodified — it only needs a `DateTime endsAt`, and `ReservationModel.expiresAt` fits directly. No new widget was written; `StreamBuilder` already disposes its `Stream.periodic` subscription safely (same pattern validated for RES-102/F-1). While a reservation is still in flight the line shows "Reserving..." instead.
+
+**Release on decrement/remove:** `decrement`/`remove`/`clear` in `CartService` call `orderRepo.releaseReservation(id)` (fire-and-forget, failure logged) for whatever reservation is dropped, so the hold is freed immediately rather than waiting out its 5-minute natural expiry — stock becomes visible to other users sooner.
+
+**Checkout 410 handling:** `CartController.checkout()` branches on `ApiException.statusCode`. A `410` calls `CartService.dropExpiredReservations()` to drop the expired line(s) and shows "Some items timed out. Please add them again." instead of the generic failure message. Other status codes (e.g. the simulated 502 payment-gateway timeout) keep the original generic handling.
+
+**Design decision — reservation expires while still in the app:** Chose a **proactive** approach over a **reactive** one. `CartController.onInit()` starts a `Timer.periodic(1s)` (cancelled in `onClose()` — the RES-102 lesson applies directly here) that calls `dropExpiredReservations()` on every tick; an expired line is removed immediately with a snackbar ("Reservation timed out..."), and the displayed total updates automatically. Rejected alternative: leave the line sitting in the bag until the user tries to check out. That defers the bad experience rather than avoiding it — checkout would reject the line anyway (410), and in the meantime the bag would display a total and quantity that no longer reflect anything actually held on the server.
+
+**Known limitation — cannot be closed without touching the read-only backend:** `FakeApiService.reserveDeal` checks `quantityLeft` but never decrements it; only `checkout` decrements it, and `checkout` never re-validates against other reservations still outstanding for the same deal. Two devices reserving the last unit inside the same time window can therefore both receive a valid reservation and both successfully check out, overselling the item — the exact scenario the feature's own motivation describes. This is a concurrency gap in the simulated backend (`fake_api_service.dart`, read-only per CLAUDE.md `ห้ามแตะ`), not something fixable from the client. The client-side work above only guarantees correct, graceful handling of whatever 409/410 the backend actually returns — it narrows the window (prompt release on decrement/remove/expiry) but cannot make cross-device reservation atomic.
+
+#### What F-3's own motivation asks for that this solution cannot fully deliver
+
+F-3 opens with: *"two users can 'add' the last bag and one of them finds out only at pickup"* — the feature is meant to close that gap. It cannot be closed completely, specifically because of two things inside `fake_api_service.dart` (read-only, `ห้ามแตะ`):
+
+1. **`reserveDeal` never decrements stock at reservation time** (`fake_api_service.dart:126-155`) — it only checks `quantityLeft < quantity` and rejects if insufficient, but the reservation it creates does not reduce `quantityLeft`. Two `reserveDeal` calls for the same deal, arriving before either resolves, both read the same unreduced `quantityLeft` and both pass the check — so **both get a valid reservation for what is really one physical unit.**
+2. **`checkout` never re-validates a reservation against other outstanding reservations for the same deal** (`fake_api_service.dart:166-220`) — it only checks that the reservation exists and hasn't expired, then decrements `quantityLeft` clamped to `0` (never throwing for insufficient stock) and never removes the reservation record afterward. So **both devices from point 1 can also both `checkout` successfully** — two `CONFIRMED` orders for one unit.
+
+Fixing either would require editing `fake_api_service.dart` (e.g. decrementing `quantityLeft` atomically inside `reserveDeal`, and having `checkout` reject if the combined quantity of still-valid reservations exceeds stock) — not permitted under this assessment's rules. As a result, F-3 as implemented guarantees correct, graceful client behavior for every 409/410 the backend *does* return, and shortens the exposure window (prompt release on decrement/remove, proactive expiry), but it cannot guarantee the last unit is never oversold end-to-end — that guarantee can only come from the backend.
+
+**Time spent:** ~90 min
 
 ---
 
@@ -229,6 +257,6 @@ Each tracker uses `Key('imp-<source>-<deal.id>')` so `VisibilityDetector` can re
 | RES-107 | ✅ Fixed | Nullable cast + isLoading/hasError guards for deep-link entry |
 | F-1 | ✅ Fixed | Live `mm:ss` / `hh:mm:ss` countdown in DealCard, flash rail, and DealDetailsScreen |
 | F-2 | ✅ Implemented | `ImpressionTracker` widget + session dedup + batch 10/15 s |
-| F-3 | ❌ Not implemented | Optimistic reserve + 5-min expiry timer |
+| F-3 | ✅ Implemented | Optimistic reserve/rollback, per-line countdown, release on decrement/remove, 410 handling, proactive expiry ticker — known limitation: backend doesn't prevent true concurrent double-reservation of the last unit |
 
-**Total time logged:** ~275 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min, RES-107: ~30 min, F-1: ~30 min, F-2: ~60 min)
+**Total time logged:** ~365 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min, RES-107: ~30 min, F-1: ~30 min, F-2: ~60 min, F-3: ~90 min)

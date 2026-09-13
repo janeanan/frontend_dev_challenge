@@ -5,8 +5,11 @@ class CartItemModel {
   final DealModel deal;
   int quantity;
 
-  /// Stock hold for this line item. The starter app does not reserve stock —
-  /// see the "Reservations" feature task.
+  /// Original (starter) comment: "Stock hold for this line item. The starter
+  /// app does not reserve stock — see the 'Reservations' feature task."
+  
+  /// Updated after F-3: null while a reservation is in flight (optimistic
+  /// add) or after it has expired and been dropped.
   ReservationModel? reservation;
 
   CartItemModel({required this.deal, this.quantity = 1, this.reservation});
