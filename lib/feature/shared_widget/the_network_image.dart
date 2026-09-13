@@ -21,6 +21,12 @@ class TheNetworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final cacheWidth =
+        (width != null && width!.isFinite) ? (width! * dpr).round() : null;
+    final cacheHeight =
+        (height != null && height!.isFinite) ? (height! * dpr).round() : null;
+
     return ClipRRect(
       borderRadius: borderRadius ?? BorderRadius.zero,
       child: CachedNetworkImage(
@@ -28,6 +34,8 @@ class TheNetworkImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
+        memCacheWidth: cacheWidth,
+        memCacheHeight: cacheHeight,
         placeholder: (context, _) => Shimmer.fromColors(
           baseColor: Colors.grey.shade300,
           highlightColor: Colors.grey.shade100,

@@ -94,17 +94,29 @@
 
 ---
 
-### RES-105 — Full-list rebuild + unbounded image cache ❌ Not fixed
+### RES-105 — Full-list rebuild + unbounded image cache ✅ Fixed
 
-**File:** `lib/feature/home/home_screen.dart`, `lib/feature/shared_widget/deal_card.dart`
+**Files:** `lib/feature/home/home_screen.dart`, `lib/feature/shared_widget/the_network_image.dart`
 
-**Root cause (two parts):**
-1. The root `Obx` wraps the entire `Scaffold`, meaning any observable change (including `scrollOffset` on every scroll frame) triggers a rebuild of the whole screen, not just the widget that changed.
-2. `TheNetworkImage` has no `cacheWidth`/`cacheHeight` limit; loading full-resolution images for thumbnail-sized cards wastes memory and causes jank.
+**Root cause (two independent contributing causes, confirmed with Flutter DevTools):**
 
-**Fix needed:** Split the `Obx` scopes — wrap only `AppBar.elevation` in its own `Obx`, and wrap `DealCard` instances in `RepaintBoundary`. For images, pass `cacheWidth` constraints to limit decoded bitmap size.
+1. **`Obx` scope too wide.** The original `build()` wrapped the entire `Scaffold` (AppBar + full deal list + FAB) in one `Obx`. `HomeController._onScroll()` sets `scrollOffset.value = scrollController.offset` on every scroll frame (`home_controller.dart:44`), but `scrollOffset` is only actually used for two small things — the AppBar's elevation and the FAB's visibility. Because `Obx` rebuilds everything inside its builder whenever any `.obs` value it reads changes, one scroll frame rebuilt the whole screen, including every `DealCard` in the list. `home_screen.dart` also used `ListView(children: [...])` (eager) rather than `ListView.builder`, so every deal card — not just the ones on screen — was constructed on each of those rebuilds, compounding the cost.
+2. **No cache-size limit on images.** `TheNetworkImage` passed no `memCacheWidth`/`memCacheHeight` to `CachedNetworkImage`, so a 1600×1200 source image (from `picsum.photos`) was decoded into memory at full resolution even when displayed at 64–160px. Memory grows roughly linearly with the number of distinct images scrolled past, exactly matching the reported symptom ("memory grows the further you scroll").
 
-**Time spent:** 0 min (identified, not fixed)
+**DevTools evidence (Performance tab, Frame Analysis):**
+
+- **Before:** during an ordinary scroll gesture, consecutive frames showed sustained jank — e.g. frame 19795: `Build: 20.7 ms` / `Raster: 1.0 ms` (UI-jank detected, well over the 16.6 ms/60fps budget). Raster stayed low throughout, confirming the cost was in widget construction (`Build`), not painting.
+- **After splitting `Obx` into three narrow scopes** (`AppBar` via `PreferredSize(child: Obx(...))`, the list `body`, and the `floatingActionButton`, each reading only the `.obs` values it needs) **and switching to `ListView.builder`:** the same scroll gesture produced consistently low, jank-free frames (`Rebuild Stats` / frame chart showed near-0ms bars with no orange "Jank" markers), confirmed both in DevTools and by hand-testing the running app.
+- Two isolated jank spikes were observed and deliberately **not** attributed to this bug after inspection: (a) the very first frame after initial data load (`isLoading` flipping to `false`) — `Rebuild Stats` showed `CachedNetworkImage` × 7 and `Icon`/`SizedBox`/`Text` (from `FlashSaleCountdown`) × 5, matching exactly the number of cards visible on screen — i.e. the one-time cost of constructing the initial visible viewport, not a rebuild loop; and (b) a jank frame immediately following a hot reload, which is a Flutter tooling artifact (widget-tree reconciliation + shader warm-up on the Impeller engine) that never occurs outside of development. Neither matches the reported symptom, which is specifically about degradation *while scrolling*.
+
+**Fix applied:**
+
+1. **`home_screen.dart`** — replaced the single wide `Obx` with three narrowly-scoped ones: `Obx(() => AppBar(elevation: ...))` (wrapped in `PreferredSize` since `Scaffold.appBar` requires a `PreferredSizeWidget`), a separate `Obx` for `body` that reads only `isLoading`/`flashDeals`/`visibleDeals`/`todayOnly`, and a separate `Obx` for `floatingActionButton` (returning `SizedBox.shrink()` instead of `null`, since `Obx`'s builder must return a non-null `Widget`). Also converted the deal list from `ListView(children: [...])` to `ListView.builder`, so off-screen cards are not constructed until they scroll into view. `ImpressionTracker`'s `Key('imp-home-${deal.id}')` was preserved unchanged so F-2's visibility tracking keeps working correctly under lazy building.
+2. **`the_network_image.dart`** — added `memCacheWidth`/`memCacheHeight`, computed as `(width|height) * devicePixelRatio` and passed to `CachedNetworkImage`, but only when the caller supplies a finite value (`width!.isFinite` guard). `DealCard`/`FlashDealsSection` pass `width: double.infinity`, so only `memCacheHeight` applies there; `deal_details_screen.dart`'s hero image passes neither `width` nor `height` (intentionally full-resolution), so both stay `null` and it is unaffected.
+
+**Why not `RepaintBoundary` per card (considered, not applied):** `RepaintBoundary` isolates *repaint* cost, but the measured bottleneck was `Build` (widget construction), not `Raster` (painting) — a `RepaintBoundary` would not have addressed the actual cost shown in DevTools. Splitting the `Obx` scope addresses the root cause directly.
+
+**Time spent:** ~70 min
 
 ---
 
@@ -252,11 +264,11 @@ Fixing either would require editing `fake_api_service.dart` (e.g. decrementing `
 | RES-102 | ✅ Fixed | Replaced `Timer.periodic` + `setState` with `Stream.periodic` + `StreamBuilder` |
 | RES-103 | ✅ Fixed | Removed `ever()` entirely; `addToCart()` decrements `_quantityLeft` optimistically |
 | RES-104 | ✅ Fixed | Generation counter discards stale loadMore/refresh results |
-| RES-105 | ❌ Not fixed | `Obx` scope too wide; no image cache bounds |
+| RES-105 | ✅ Fixed | Split `Obx` into 3 narrow scopes + `ListView.builder`; added `memCacheWidth/Height` — verified jank-free scroll in DevTools |
 | RES-106 | ✅ Fixed | Convert UTC → UTC+7 via `_bangkokOffset` before formatting and `.day` compare |
 | RES-107 | ✅ Fixed | Nullable cast + isLoading/hasError guards for deep-link entry |
 | F-1 | ✅ Fixed | Live `mm:ss` / `hh:mm:ss` countdown in DealCard, flash rail, and DealDetailsScreen |
 | F-2 | ✅ Implemented | `ImpressionTracker` widget + session dedup + batch 10/15 s |
 | F-3 | ✅ Implemented | Optimistic reserve/rollback, per-line countdown, release on decrement/remove, 410 handling, proactive expiry ticker — known limitation: backend doesn't prevent true concurrent double-reservation of the last unit |
 
-**Total time logged:** ~365 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-106: ~15 min, RES-107: ~30 min, F-1: ~30 min, F-2: ~60 min, F-3: ~90 min)
+**Total time logged:** ~435 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-105: ~70 min, RES-106: ~15 min, RES-107: ~30 min, F-1: ~30 min, F-2: ~60 min, F-3: ~90 min)
