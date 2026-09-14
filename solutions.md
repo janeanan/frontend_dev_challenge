@@ -272,3 +272,25 @@ Fixing either would require editing `fake_api_service.dart` (e.g. decrementing `
 | F-3 | ✅ Implemented | Optimistic reserve/rollback, per-line countdown, release on decrement/remove, 410 handling, proactive expiry ticker — known limitation: backend doesn't prevent true concurrent double-reservation of the last unit |
 
 **Total time logged:** ~435 min (RES-101: ~25 min, RES-102: ~40 min, RES-103: ~60 min, RES-104: ~45 min, RES-105: ~70 min, RES-106: ~15 min, RES-107: ~30 min, F-1: ~30 min, F-2: ~60 min, F-3: ~90 min)
+
+---
+
+## Design Questions
+
+### Q1 — `GetxController` lifecycle vs widget `State` lifecycle
+
+A widget's `State` always disappears together with the widget itself — the moment a widget is removed from the screen, Flutter guarantees `dispose()` is called. A `GetxController` is different: when it disappears is something we decide ourselves at the time we create it — we can choose to let it disappear together with the screen it belongs to (the default), or keep it alive forever until the app closes.
+
+**Example — RES-103:** every time the deal-details screen is opened and closed, one `ever()` listener is left behind, never destroyed. When the cart later changes (e.g. tapping "Add to bag"), every listener left over from all previous visits fires at once, each sending a duplicate `GET /deals/{id}` request.
+
+A fix that was considered:
+```dart
+_cartWorker = ever(cartService.itemCount, (_) => _recheckAvailability()); // store it in a field, then
+_cartWorker?.dispose(); // call dispose() to fix it
+```
+
+But `addToCart()` was chosen to update optimistically instead, since adding an item to the bag is an action whose outcome we already know locally — decrementing the value in memory immediately avoids waiting on an extra round-trip to the server. Checking `FakeApiService` further showed that `quantityLeft` is only adjusted at checkout time, not when an item is added to the bag, so re-fetching after `addToCart()` would return the same value anyway.
+
+### Q2 — TODO
+
+### Q3 — TODO
