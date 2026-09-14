@@ -2,7 +2,7 @@
 
 ## AI Tools Used
 
-ใช้ **Claude Code** (Anthropic's CLI) เป็นตัวช่วยตลอดการทำ assessment นี้ โดยติดตั้งเครื่องมือเสริม 2 อย่าง:
+ใช้ **Claude Code** (Anthropic's CLI) เป็นตัวช่วยตลอดการทำ assessment นี้ ช่วยวิเคราะห์ ทำความเข้าใจ อธิบาย เพื่อให้ได้แนวทางการแก้ไขโจทย์ต่างๆ โดยติดตั้งเครื่องมือเสริม 2 อย่าง:
 
 **CLAUDE.md** — ไฟล์ context ที่อธิบายโครงสร้างโปรเจค, stack, bug tickets, และกฎที่ห้ามแตะ (`fake_api_service.dart`, `assets/data/`) ให้ Claude อ่านตั้งแต่ต้น conversation แทนที่จะต้องอธิบายซ้ำทุกครั้ง เพื่อให้ Claude ตอบคำถามและแก้โค้ดได้ตรงจุดโดยไม่ต้องเดา context
 
@@ -299,4 +299,16 @@ To decide how tightly to scope it, I go through every `.obs` value a given `Obx`
 
 **Example — RES-105:** `home_screen.dart` originally wrapped a single `Obx` around the entire `Scaffold`, even though only the `AppBar`'s elevation and the FAB's visibility depended on `scrollOffset`. Splitting it into three narrowly-scoped `Obx` widgets (AppBar, deal list, FAB) meant scrolling no longer rebuilt the whole list. DevTools confirmed this: Build time per frame dropped from ~20ms (jank-flagged) to consistently under the 16ms/60fps budget.
 
-### Q3 — TODO
+### Q3 — How would you write an automated test that would have caught RES-106 before release? What (if anything) would you change in the code to make such a test possible?
+
+I had never written an automated test before this assessment, and I did not actually add a test file to this project for RES-106. Reading the ticket, my understanding was that the time was displaying incorrectly because UTC has an offset of 0, so I added 7 hours to match local (Bangkok) time.
+
+If I had to check this, I would feed in `start`/`end` values that are UTC, then verify whether the output displays as Bangkok time (+7 hours), not the original UTC value.
+
+---
+
+## Time Spent & Next Steps
+
+**Time spent:** see the summary table above (~435 minutes total).
+
+**What I'd do next with one more day:** not add new features, but spend it deepening my understanding of two things this assessment kept surfacing — GetX's lifecycle (`onInit`/`onReady`/`onClose`, the dependency-injection registry, and what actually guarantees a controller gets disposed) and writing automated tests. Neither is a new concept in general, but I'm not comfortable with either yet, and working through RES-102, RES-103, and RES-105 made that gap clear. With more time I'd actually write and run the tests sketched in Q3, and practice scoping `Obx`/GetX lifecycle correctly.
