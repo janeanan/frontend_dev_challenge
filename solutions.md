@@ -291,6 +291,12 @@ _cartWorker?.dispose(); // call dispose() to fix it
 
 But `addToCart()` was chosen to update optimistically instead, since adding an item to the bag is an action whose outcome we already know locally — decrementing the value in memory immediately avoids waiting on an extra round-trip to the server. Checking `FakeApiService` further showed that `quantityLeft` is only adjusted at checkout time, not when an item is added to the bag, so re-fetching after `addToCart()` would return the same value anyway.
 
-### Q2 — TODO
+### Q2 — When does wrapping a large subtree in a single `Obx` hurt you? How do you decide how tightly to scope reactivity?
+
+`Obx` rebuilds everything wrapped inside it as one block, every time any `.obs` value it reads changes — it doesn't matter whether that value is actually used by just one small part of the subtree. This starts to hurt once **(1)** the observed value changes at high frequency (e.g. `scrollOffset`, which changes on every scroll frame), and **(2)** the wrapped subtree is large or expensive to build (e.g. a list of cards with several images each).
+
+To decide how tightly to scope it, I go through every `.obs` value a given `Obx` reads and ask "which widgets actually use this value?" — then wrap only that widget in its own small `Obx`, instead of wrapping a whole screen just because one small part of it needs to be reactive.
+
+**Example — RES-105:** `home_screen.dart` originally wrapped a single `Obx` around the entire `Scaffold`, even though only the `AppBar`'s elevation and the FAB's visibility depended on `scrollOffset`. Splitting it into three narrowly-scoped `Obx` widgets (AppBar, deal list, FAB) meant scrolling no longer rebuilt the whole list. DevTools confirmed this: Build time per frame dropped from ~20ms (jank-flagged) to consistently under the 16ms/60fps budget.
 
 ### Q3 — TODO
